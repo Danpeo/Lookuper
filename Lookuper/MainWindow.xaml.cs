@@ -17,7 +17,7 @@ public partial class MainWindow
     private const int WM_KEYDOWN = 0x0100;
     private static readonly LowLevelKeyboardProc _proc = HookCallback;
     private static IntPtr _hookID = IntPtr.Zero;
-    private static readonly HttpClient HttpClient = new() { BaseAddress = new Uri("http://127.0.0.1:8000") };
+    private static readonly HttpClient HttpClient = new() { BaseAddress = new Uri("http://127.0.0.1:6969") };
 
 
     public MainWindow()
@@ -96,11 +96,10 @@ public partial class MainWindow
             using var ms = new MemoryStream();
             bitmap.Save(ms, ImageFormat.Png);
             string base64Image = Convert.ToBase64String(ms.ToArray());
-            
-            await SendDataToFastAPI(base64Image, point.X, point.Y);
-
 
             MoveWindowToMouse(point);
+
+            await SendDataToServer(base64Image, point.X, point.Y);
         }
         catch (Exception ex)
         {
@@ -109,7 +108,7 @@ public partial class MainWindow
         }
     }
 
-    private static async Task SendDataToFastAPI(string base64Image, int mouseX, int mouseY)
+    private static async Task SendDataToServer(string base64Image, int mouseX, int mouseY)
     {
         try
         {
