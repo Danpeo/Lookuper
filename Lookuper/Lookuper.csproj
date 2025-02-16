@@ -18,5 +18,10 @@
       <Folder Include="OCR\" />
       <Folder Include="Screenshots\" />
     </ItemGroup>
+    <ItemGroup>
+        <None Include="OCR\screen_ocr\**\*">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
 
 </Project>

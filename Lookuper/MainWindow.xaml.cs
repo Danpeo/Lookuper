@@ -2,7 +2,9 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows;
 using System.Windows.Input;
 using Newtonsoft.Json;
@@ -15,6 +17,8 @@ public partial class MainWindow
     private const int WM_KEYDOWN = 0x0100;
     private static readonly LowLevelKeyboardProc _proc = HookCallback;
     private static IntPtr _hookID = IntPtr.Zero;
+    private static readonly HttpClient HttpClient = new() { BaseAddress = new Uri("http://127.0.0.1:8000") };
+
 
     public MainWindow()
     {
@@ -47,7 +51,7 @@ public partial class MainWindow
         return CallNextHookEx(_hookID, nCode, wParam, lParam);
     }
 
-    private static void CaptureScreen()
+    private static async void CaptureScreen()
     {
         try
         {
@@ -63,7 +67,7 @@ public partial class MainWindow
                 g.CopyFromScreen(0, 0, 0, 0, bitmap.Size);
             }
 
-            string projectPath = AppDomain.CurrentDomain.BaseDirectory;
+            /*string projectPath = AppDomain.CurrentDomain.BaseDirectory;
             string screenshotsPath = Path.Combine(projectPath, "Screenshots");
 
             if (!Directory.Exists(screenshotsPath))
@@ -84,7 +88,17 @@ public partial class MainWindow
             string jsonFilePath =
                 Path.Combine(screenshotsPath, $"ScreenshotData_{DateTime.Now:yyyyMMdd_HHmmss}.json");
 
-            File.WriteAllText(jsonFilePath, JsonConvert.SerializeObject(screenData, Formatting.Indented));
+            File.WriteAllText(jsonFilePath, JsonConvert.SerializeObject(screenData, Formatting.Indented));*/
+            /*
+            SendDataToPython(screenshotFilePath, point.X, point.Y);
+            */
+            
+            using var ms = new MemoryStream();
+            bitmap.Save(ms, ImageFormat.Png);
+            string base64Image = Convert.ToBase64String(ms.ToArray());
+            
+            await SendDataToFastAPI(base64Image, point.X, point.Y);
+
 
             MoveWindowToMouse(point);
         }
@@ -92,6 +106,91 @@ public partial class MainWindow
         {
             MessageBox.Show($"Failed to save screenshot: {ex.Message}", "Error", MessageBoxButton.OK,
                 MessageBoxImage.Error);
+        }
+    }
+
+    private static async Task SendDataToFastAPI(string base64Image, int mouseX, int mouseY)
+    {
+        try
+        {
+            var payload = new
+            {
+                image = base64Image,
+                x = mouseX,
+                y = mouseY
+            };
+
+            string json = JsonConvert.SerializeObject(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            HttpResponseMessage response = await HttpClient.PostAsync("/process_image", content);
+            string responseBody = await response.Content.ReadAsStringAsync();
+
+            var result = JsonConvert.DeserializeObject<dynamic>(responseBody);
+            string foundWord = result?.word;
+
+            MessageBox.Show($"Найденное слово: {foundWord}", "Результат", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Ошибка при отправке запроса в FastAPI: {ex.Message}");
+        }
+    }
+    
+    private static void SendDataToPython(string screenshotPath, int mouseX, int mouseY)
+    {
+        try
+        {
+            string pythonPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "OCR", "screen_ocr", ".venv", "Scripts", "python.exe");
+            string scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "OCR", "screen_ocr", "main.py");
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = pythonPath,
+                Arguments = scriptPath,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using (var process = new Process())
+            {
+                process.StartInfo = psi;
+                process.Start();
+
+                Thread.Sleep(200);
+
+                using (StreamWriter sw = process.StandardInput)
+                {
+                    if (!sw.BaseStream.CanWrite)
+                    {
+                        throw new IOException("Поток StandardInput закрыт.");
+                    }
+
+                    var jsonData = JsonConvert.SerializeObject(new
+                    {
+                        image = Convert.ToBase64String(File.ReadAllBytes(screenshotPath)),
+                        x = mouseX,
+                        y = mouseY
+                    });
+
+                    sw.WriteLine(jsonData);
+                    sw.Flush();  // Принудительно отправляем данные в Python
+                }
+
+                using (StreamReader sr = process.StandardOutput)
+                {
+                    string result = sr.ReadToEnd();
+                    MessageBox.Show($"Python ответил: {result}");
+                }
+
+                process.WaitForExit();
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Ошибка передачи данных в Python: {ex.Message}");
         }
     }
 
